@@ -1,0 +1,182 @@
+/* 
+ * 
+ *  Created on: 2020 Dec 18 18:33:47
+ *  Author: Ernestas Trakys - 20090282
+ *  
+ */
+
+// The purpose of this code is to automate station A
+
+
+
+#include <DAVE.h>
+#include <xmc_gpio.h>
+
+/* Inputs */
+#define sensorGrabReady P0_0      //grab is ready to take next pallet, waits until notified by sensor '3'
+#define sensorPalletInPlace P0_3 //catch stops pallet sends confirmation signal
+#define sensorPalletPlaced P0_4 //sensor that confirms pallet has been placed by grab
+
+#define palletReady=5 P0_5       //pallet is in position to be moved
+#define palletNotReady=6 P0_6    //no pallet in location to be moved
+#define palletInPlace=7 P0_7     //pallet has been transfered
+#define palletNotInPlace=8 P0_7  //no pallet has been transfered yet
+#define palletPlacedReturn=16 P0_8 //pallet placed in new location, return arm to original position
+
+/* Outputs */
+#define Piston P1_0
+#define GrabLowered P1_1  //arm extended vertically downwards
+#define GrabRaised P1_2   //arm retracted vertically upwards
+#define GrabExtended P1_3 //arm extended horizontally
+#define GrabRetracted P1_4 //arm retracted horizontally
+#define GrabPinched P1_5  //arm's pincers tightened	
+#define GrabReleased P1_6 //arm's pincers released
+
+unsigned int palletReadyEvent;          //pallet arrived, ready for transfer
+unsigned int palletInPlaceEvent;        //pallet transfered
+unsigned int palletPlacedReturnEvent;   //pallet trasnfered, return arm to original position
+
+
+unsigned long previousMillis = 0;
+const long interval = 500;
+
+int currentState = 0;
+int previousState = 0;
+
+int timer[4];
+
+
+void TenthSecTick(void)   //System Timer
+ {
+		while(timer[1] == 1) //while timer is turned on
+		{
+			timer[2]++; //increment time
+			if(timer[2] > timer[3]) //if time elapsed is greater than expected
+			{
+				timer[4] = 1;
+			}
+		}
+
+		if (timer[5] == 1){  //resets timer and recorded value
+				timer[2]=0;
+				timer[4]=0;
+
+			}
+  }
+
+void setUpTimers(void)
+{
+	/* Sort Timers */
+	//starts timer
+	timer[1] = 0; 
+	//records time elapsed
+	timer[2] = 0; 
+	//acceptable time set
+	timer[3] = 10; 
+	//recorded value
+	timer[4] = 0; 
+	//resets timer and recorded value
+	timer[5] = 0; 
+}
+
+void SysTick_Handler(void)
+{
+	TenthSecTick();
+}
+
+void initPortPins() {
+  currentState = 0;
+  XMC_GPIO_SetMode(sensorPalletReady, XMC_GPIO_MODE_INPUT_PULL_DOWN);
+  XMC_GPIO_SetMode(sensorGrabReady, XMC_GPIO_MODE_INPUT_PULL_DOWN);
+  XMC_GPIO_SetMode(sensorPalletNotReady, XMC_GPIO_MODE_INPUT_PULL_DOWN);
+  XMC_GPIO_SetMode(sensorPalletNotInPlace, XMC_GPIO_MODE_INPUT_PULL_DOWN);
+  XMC_GPIO_SetMode(sensorPalletInPlace, XMC_GPIO_MODE_INPUT_PULL_DOWN);
+  XMC_GPIO_SetMode(sensorPalletPlacedReturn, XMC_GPIO_MODE_INPUT_PULL_DOWN);
+  XMC_GPIO_SetMode(StartButton ,XMC_GPIO_MODE_INPUT_PULL_DOWN );
+  XMC_GPIO_SetMode(StopButton ,XMC_GPIO_MODE_INPUT_PULL_DOWN );
+  XMC_GPIO_SetMode(EmergencyButton ,XMC_GPIO_MODE_INPUT_PULL_DOWN );
+
+  XMC_GPIO_SetMode(Piston, XMC_GPIO_MODE_OUTPUT_PUSH_PULL);
+  XMC_GPIO_SetMode(GrabRetracted, XMC_GPIO_MODE_OUTPUT_PUSH_PULL);
+  XMC_GPIO_SetMode(GrabPinched, XMC_GPIO_MODE_OUTPUT_PUSH_PULL);
+  XMC_GPIO_SetMode(GrabReleased, XMC_GPIO_MODE_OUTPUT_PUSH_PULL);
+  XMC_GPIO_SetMode(GrabRaised, XMC_GPIO_MODE_OUTPUT_PUSH_PULL);
+  XMC_GPIO_SetMode(GrabLowered, XMC_GPIO_MODE_OUTPUT_PUSH_PULL);
+  XMC_GPIO_SetMode(GrabExtended, XMC_GPIO_MODE_OUTPUT_PUSH_PULL);
+  
+  
+
+}
+
+
+/* Main */
+int main(void) {
+
+  initPortPins();
+  setUpTimers();
+  unsigned long currentMillis = millis();
+  int palletReadyEvent = detectIfPalletReady();
+  int palletInPlaceEvent = detectIfPalletInPlace();
+  Serial.println(currentState);
+
+  
+while(1)  {
+
+		if( XMC_GPIO_GetInput(sensorPalletReady) == 1 && currentState== 0){           //Checks that a pallet is ready for transfer
+			XMC_GPIO_SetOutputHigh(sensorPalletPlacedReturn);
+			currentState=1;
+                   }
+                if(  XMC_GPIO_GetInput(sensorPalletReady) == 1 && currentState==1 && XMC_GPIO_GetInput(sensorGrabReady) == 1){              //Checks to see if grab is ready, lowers grab
+			XMC_GPIO_SetOutputHigh(GrabLowered);
+			timer[5]=0; //resets timer
+			currentState= 2	;
+			}
+                if( XMC_GPIO_GetInput(sensorPalletReady) == 1 && currentState == 2){          //Grabs pallet 
+			XMC_GPIO_SetOutputHigh(GrabPinched);
+			timer[1]=1; //timer started
+			currentState= 3 ;
+			}
+                if( currentState == 3 && XMC_GPIO_GetInput(sensorPalletNotInPlace) == 1 ){    //Checks that there is no pallet in final destination, raises arm
+			XMC_GPIO_SetOutputHigh(GrabRaised);
+			timer[1]=0; //stops timer
+			currentState = 4;
+			}
+                if( currentState == 4 && XMC_GPIO_GetInput(sensorPalletNotInPlace) == 1 ){    //Extends arm with pallet pinched
+			XMC_GPIO_SetOutputHigh(GrabExtended);
+			currentState = 5;
+			}
+                if( currentState == 5 && XMC_GPIO_GetInput(sensorPalletNotInPlace) == 1 ){    //Lowers arm with pallet, above final destination
+			XMC_GPIO_SetOutputHigh(GrabLowered);
+			currentState = 6;
+			}
+                if( currentState == 6 && XMC_GPIO_GetInput(sensorPalletNotInPlace) == 1 ){    //Lowers arm with pallet, above final destination
+			XMC_GPIO_SetOutputHigh(GrabLowered);
+			timer[5]=0;//resets timer to default value
+			currentState = 7;
+			}
+                if( currentState == 7 && XMC_GPIO_GetInput(sensorPalletNotInPlace) == 1 ){    //Grab releases pallet in final destination
+			XMC_GPIO_SetOutputHigh(GrabReleased);
+			timer[1]=1; //start timer
+			currentState = 8;
+			}
+                if( currentState == 9 && XMC_GPIO_GetInput(sensorPalletInPlace) == 1 ){       //Grab gets raised
+			XMC_GPIO_SetOutputHigh(GrabRaised);
+			timer[1]=0; //ends timer
+			currentState = 10;
+			}
+                if( currentState == 10 && XMC_GPIO_GetInput(sensorPalletPlacedReturn) == 1 ){ //Grab gets retracted back
+			XMC_GPIO_SetOutputHigh(GrabRetracted);
+			currentState = 11;
+			}
+                if(currentState == 12 && XMC_GPIO_GetInput(sensorPalletPlacedReturn) == 1){   //Grab arrives in original position, ready for new cycle
+			XMC_GPIO_SetOutputHigh(EndOfCycle);
+			currentState = 0;
+                        }
+                if(XMC_GPIO_GetInput(EmergencyButton) == 1 || XMC_GPIO_GetInput(StopButton) == 1){  //If emergancy button is pressed
+			previousState=currentState;
+			currentState=12;
+			}
+		if(currentState==13 && XMC_GPIO_GetInput(StartButton) == 1){
+			currentState=previousState;
+			}
+  }
