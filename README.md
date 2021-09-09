@@ -1,5 +1,5 @@
 # assemblyAutomation
-Objective was to move a solenoid from position A to position B
+Objective was to code an automation so that a solenoid is moved from position A to position B
 
 The purpose of this station is the positioning of the base shell of the rotation mechanism in the transfer pallet.
  
